@@ -1,0 +1,54 @@
+# Dockerfile.eval — self-contained build of the Fleet server for PRE-PURCHASE
+# evaluation. Builds the frontend bundle and the CGO Go binary on linux/amd64,
+# then assembles a minimal runtime image. Pairs with evaluation-premium.patch
+# (licensing default flipped to Premium).
+#
+# Build:  docker build -f Dockerfile.eval -t fleet:premium-eval .
+# Run:    see the README section in the assistant's message.
+
+# ---------------------------------------------------------------------------
+# Stage 1: build frontend assets (webpack -> assets/)
+# ---------------------------------------------------------------------------
+FROM node:24-alpine AS frontend
+WORKDIR /build
+# Install deps first for layer caching.
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile --network-timeout 600000
+# Bring in the rest of the source and build the production bundle.
+COPY . .
+ENV NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=4096"
+RUN NODE_ENV=production yarn run webpack --progress
+
+# ---------------------------------------------------------------------------
+# Stage 2: build the fleet Go binary (CGO for sqlite fts5)
+# ---------------------------------------------------------------------------
+FROM golang:1.26-alpine AS backend
+RUN apk add --no-cache build-base git
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# Pull in the webpack output produced in stage 1 so go-bindata can embed it.
+# webpack emits the JS/CSS bundle into assets/ AND compiles the HtmlWebpackPlugin
+# template frontend/templates/react.ejs -> frontend/templates/react.tmpl, which
+# the server loads at runtime. Both must come from the frontend stage.
+COPY --from=frontend /build/assets ./assets
+COPY --from=frontend /build/frontend/templates ./frontend/templates
+# Embed frontend templates + assets + mail templates into Go (build tag: full).
+RUN go run github.com/kevinburke/go-bindata/go-bindata -pkg=bindata -tags full \
+        -o=server/bindata/generated.go \
+        frontend/templates/ assets/... server/mail/templates
+# Build the server. netgo => no libc resolver dep; fts5 => sqlite full-text.
+RUN CGO_ENABLED=1 go build -tags full,fts5,netgo -trimpath \
+        -o /build/fleet ./cmd/fleet
+
+# ---------------------------------------------------------------------------
+# Stage 3: minimal runtime image (mirrors tools/fleet-docker/Dockerfile)
+# ---------------------------------------------------------------------------
+FROM alpine:3.23
+LABEL org.opencontainers.image.title="fleet-premium-eval"
+RUN apk --no-cache add ca-certificates jq
+RUN addgroup -S fleet && adduser -S fleet -G fleet
+USER fleet
+COPY --from=backend /build/fleet /usr/bin/fleet
+CMD ["fleet", "serve"]

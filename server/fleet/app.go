@@ -1615,7 +1615,10 @@ type VulnerabilitiesWebhookSettings struct {
 }
 
 func (c *AppConfig) ApplyDefaultsForNewInstalls() {
-	c.ServerSettings.EnableAnalytics = true
+	// EVALUATION BUILD: usage analytics disabled by default. Combined with the
+	// licensing patch (AllowDisableTelemetry=true), this keeps telemetry off and
+	// lets it be toggled from Settings. REVERT before any production deployment.
+	c.ServerSettings.EnableAnalytics = false
 
 	// Add default values for SMTPSettings.
 	var smtpSettings SMTPSettings

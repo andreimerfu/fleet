@@ -43,7 +43,18 @@ func loadPublicKey() (*ecdsa.PublicKey, error) {
 func LoadLicense(licenseKey string) (*fleet.LicenseInfo, error) {
 	// No license key
 	if licenseKey == "" {
-		return &fleet.LicenseInfo{Tier: fleet.TierFree}, nil
+		// EVALUATION BUILD: default to Premium so paid features can be exercised
+		// before purchasing a license. AllowDisableTelemetry is set so analytics
+		// can still be turned off via server_settings.enable_analytics=false.
+		// REVERT THIS before any production / licensed deployment.
+		return &fleet.LicenseInfo{
+			Tier:                  fleet.TierPremium,
+			Organization:          "Evaluation",
+			DeviceCount:           100000,
+			Expiration:            time.Now().AddDate(10, 0, 0),
+			Note:                  "Evaluation build — not a valid license",
+			AllowDisableTelemetry: true,
+		}, nil
 	}
 
 	parsedToken, err := jwt.ParseWithClaims(

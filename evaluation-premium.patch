@@ -1,0 +1,40 @@
+diff --git a/ee/server/licensing/licensing.go b/ee/server/licensing/licensing.go
+index bf649b1115..dc9d1b812c 100644
+--- a/ee/server/licensing/licensing.go
++++ b/ee/server/licensing/licensing.go
+@@ -43,7 +43,18 @@ func loadPublicKey() (*ecdsa.PublicKey, error) {
+ func LoadLicense(licenseKey string) (*fleet.LicenseInfo, error) {
+ 	// No license key
+ 	if licenseKey == "" {
+-		return &fleet.LicenseInfo{Tier: fleet.TierFree}, nil
++		// EVALUATION BUILD: default to Premium so paid features can be exercised
++		// before purchasing a license. AllowDisableTelemetry is set so analytics
++		// can still be turned off via server_settings.enable_analytics=false.
++		// REVERT THIS before any production / licensed deployment.
++		return &fleet.LicenseInfo{
++			Tier:                  fleet.TierPremium,
++			Organization:          "Evaluation",
++			DeviceCount:           100000,
++			Expiration:            time.Now().AddDate(10, 0, 0),
++			Note:                  "Evaluation build — not a valid license",
++			AllowDisableTelemetry: true,
++		}, nil
+ 	}
+ 
+ 	parsedToken, err := jwt.ParseWithClaims(
+diff --git a/server/fleet/app.go b/server/fleet/app.go
+index d9dbb2a377..f491071e8d 100644
+--- a/server/fleet/app.go
++++ b/server/fleet/app.go
+@@ -1133,7 +1133,10 @@ type VulnerabilitiesWebhookSettings struct {
+ }
+ 
+ func (c *AppConfig) ApplyDefaultsForNewInstalls() {
+-	c.ServerSettings.EnableAnalytics = true
++	// EVALUATION BUILD: usage analytics disabled by default. Combined with the
++	// licensing patch (AllowDisableTelemetry=true), this keeps telemetry off and
++	// lets it be toggled from Settings. REVERT before any production deployment.
++	c.ServerSettings.EnableAnalytics = false
+ 
+ 	// Add default values for SMTPSettings.
+ 	var smtpSettings SMTPSettings
